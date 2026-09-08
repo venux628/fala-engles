@@ -244,13 +244,17 @@
   // como nomes próprios. Se for um nome comum e reconhecido (lista acima),
   // mostramos a pronúncia certa; senão, mantemos como foi digitado, para
   // não arriscar estragar nomes que já soam bem em português (Pablo, Curitiba...).
-  function isProperNoun(tok){
+  function isProperNounAgainst(tok, dict){
     if (!/^[A-Z]/.test(tok)) return false;
     const isAllUpper = tok.length > 1 && tok === tok.toUpperCase();
     if (isAllUpper) return false;
     let base = tok.toLowerCase().replace(/’/g, "'");
     if (/[a-z]'s$/.test(base)) base = base.slice(0, -2);
-    return !DICT[base];
+    return !dict[base];
+  }
+
+  function isProperNoun(tok){
+    return isProperNounAgainst(tok, DICT);
   }
 
   function properNounToken(tok){
@@ -274,7 +278,7 @@
     return pronounced;
   }
 
-  function buildTokens(text){
+  function buildTokensEN(text){
     const raw = text.match(/[A-Za-zÀ-ÿ'’]+|\d+|[^A-Za-zÀ-ÿ'’\d]+/g) || [];
     return raw.map(tok => {
       if (/^\d+$/.test(tok)) {
@@ -299,11 +303,65 @@
   }
 
   // ---------------------------------------------------------------------
+  // Sentido português -> inglês: detecta quando o texto foi escrito em
+  // português e, nesse caso, traduz cada palavra usando PT_EN (traducao.js)
+  // e mostra a pronúncia do equivalente em inglês.
+  // ---------------------------------------------------------------------
+  function detectLanguage(text){
+    const words = text.toLowerCase().match(/[a-zà-ÿ']+/g) || [];
+    if (words.length === 0) return "en";
+    let ptScore = 0;
+    let enScore = 0;
+    words.forEach(w => {
+      if (typeof PT_EN !== "undefined" && PT_EN[w]) ptScore++;
+      if (DICT[w] || TRANSLATE[w]) enScore++;
+    });
+    return ptScore > enScore ? "pt" : "en";
+  }
+
+  function ptWordToken(tok){
+    const lower = tok.toLowerCase().replace(/’/g, "'");
+    const en = typeof PT_EN !== "undefined" ? PT_EN[lower] : null;
+    if (!en) {
+      return { word: true, original: "(não identificado)", display: tok, pos: "", pt: tok };
+    }
+    const pron = pronounceWord(en);
+    return {
+      word: true,
+      original: en,
+      display: applyCase(tok, pron),
+      pos: getPOS(en),
+      pt: tok
+    };
+  }
+
+  function buildTokensPT(text){
+    const raw = text.match(/[A-Za-zÀ-ÿ'’]+|\d+|[^A-Za-zÀ-ÿ'’\d]+/g) || [];
+    return raw.map(tok => {
+      if (/^\d+$/.test(tok)) {
+        return buildNumberToken(tok);
+      }
+      if (/^[A-Za-zÀ-ÿ'’]+$/.test(tok)) {
+        if (isProperNounAgainst(tok, typeof PT_EN !== "undefined" ? PT_EN : {})) {
+          return properNounToken(tok);
+        }
+        return ptWordToken(tok);
+      }
+      return { word: false, display: tok };
+    });
+  }
+
+  function buildTokens(text){
+    return detectLanguage(text) === "pt" ? buildTokensPT(text) : buildTokensEN(text);
+  }
+
+  // ---------------------------------------------------------------------
   // Ligação com a interface
   // ---------------------------------------------------------------------
   const entrada = document.getElementById("entrada");
   const saida = document.getElementById("saida");
   const wave = document.getElementById("wave");
+  const modeBadge = document.getElementById("modeBadge");
   const tooltip = document.getElementById("tooltip");
   const ttPt = document.getElementById("tt-pt");
   const ttPron = document.getElementById("tt-pron");
@@ -344,6 +402,10 @@
     const value = entrada.value;
     renderOutput(value);
     wave.classList.toggle("idle", value.trim().length === 0);
+
+    const isPt = value.trim().length > 0 && detectLanguage(value) === "pt";
+    modeBadge.classList.toggle("visible", isPt);
+    if (isPt) modeBadge.textContent = "traduzindo do português";
   }
 
   entrada.addEventListener("input", update);
@@ -423,7 +485,8 @@
   }
 
   function showTooltip(el, x, y){
-    const naoIdentificado = el.dataset.pt === "(não identificado)" && el.dataset.original.length > 10;
+    const unidentified = el.dataset.pt === "(não identificado)" || el.dataset.original === "(não identificado)";
+    const naoIdentificado = unidentified && el.textContent.length > 10;
     tooltip.classList.toggle("simple", naoIdentificado);
     if (naoIdentificado) {
       ttSimple.textContent = "(não identificado)";
@@ -431,7 +494,7 @@
       ttPt.textContent = el.dataset.pt;
       ttPron.textContent = el.textContent;
       ttEn.textContent = el.dataset.original;
-      ttPos.textContent = el.dataset.pos;
+      ttPos.textContent = el.dataset.pos || "(não identificado)";
     }
     positionTooltip(x, y);
     tooltip.classList.add("visible");

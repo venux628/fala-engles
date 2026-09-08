@@ -125,6 +125,21 @@
     color: var(--green);
   }
 
+  .mode-badge{
+    display: none;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--gold);
+    background: rgba(0,0,0,0.04);
+    padding: 3px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.01em;
+  }
+
+  .mode-badge.visible{
+    display: inline-block;
+  }
+
   .wave{
     display: inline-flex;
     align-items: center;
